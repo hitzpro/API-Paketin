@@ -1,0 +1,548 @@
+# 📘 API Documentation --- Synced with server.js
+
+## 🔧 Base URL
+
+    http://localhost:3200
+
+------------------------------------------------------------------------
+
+# 1️⃣ Authentication (Prefix: `/`)
+
+## POST /register
+
+Registrasi user baru + kirim OTP email.
+
+### Request
+
+```json
+{
+  "phone_number": "08123456789",
+  "email": "user@example.com",
+  "name": "Budi",
+  "password": "123456"
+}
+````
+
+### Response
+
+```json
+{
+  "message": "Registrasi berhasil!",
+  "user_id": 12
+}
+```
+
+-----
+
+## POST /login
+
+Login user. Mengembalikan data user dan flag `needs_onboarding` jika user belum isi survey.
+
+### Request
+
+```json
+{
+  "phone_number": "08123456789",
+  "password": "123456"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Login berhasil!",
+  "user": {
+    "id": 12,
+    "email": "user@example.com",
+    "phone_number": 8123456789,
+    "is_verified": true,
+    "is_active": true,
+    "profile_picture": null
+  },
+  "needs_onboarding": true
+}
+```
+
+-----
+
+## POST /logout
+
+Mencatat log logout di `user_behaviors`.
+
+### Request
+
+```json
+{ "user_id": 12 }
+```
+
+### Response
+
+```json
+{
+  "message": "Logout berhasil",
+  "logout": true
+}
+```
+
+-----
+
+# 2️⃣ OTP & Verification (Prefix: `/`)
+
+## POST /verify-otp
+
+Verifikasi akun user.
+
+### Request
+
+```json
+{
+  "phone_number": "08123456789",
+  "otp": "123456"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Verifikasi berhasil!",
+  "verified": true
+}
+```
+
+-----
+
+## POST /resend-otp
+
+Kirim ulang kode OTP baru.
+
+### Request
+
+```json
+{ "phone_number": "08123456789" }
+```
+
+### Response
+
+```json
+{
+  "message": "OTP baru telah dikirim.",
+  "resend": true
+}
+```
+
+-----
+
+## POST /cancel-otp
+
+Membatalkan OTP yang aktif.
+
+### Request
+
+```json
+{ "user_id": 12 }
+```
+
+### Response
+
+```json
+{ "message": "OTP dibatalkan." }
+```
+
+-----
+
+## POST /update-unverified
+
+Update data user jika salah input sebelum verifikasi.
+
+### Request
+
+```json
+{
+  "user_id": 12,
+  "phone_number": "08123",
+  "email": "baru@example.com",
+  "name": "Budi",
+  "password": "opsional"
+}
+```
+
+### Response
+
+```json
+{ "message": "Data user diperbarui." }
+```
+
+-----
+
+# 3️⃣ User Profile (Prefix: `/user`)
+
+## GET /user/:id
+
+Ambil detail data user.
+
+### Response
+
+```json
+{
+  "user": {
+    "id": 12,
+    "phone_number": 8123456789,
+    "email": "user@example.com",
+    "name": "Budi",
+    "is_verified": true,
+    "is_active": true,
+    "profile_picture": null
+  }
+}
+```
+
+-----
+
+## PUT /user/update
+
+Update nama, email, foto profil, atau password.
+
+### Request
+
+```json
+{
+  "user_id": 12,
+  "name": "Nama Baru",
+  "email": "baru@example.com",
+  "profile_picture": "[https://image.com/pp.png](https://image.com/pp.png)",
+  "password": "passwordbaru"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Data user berhasil diperbarui",
+  "user": {
+      "id": 12,
+      "name": "Nama Baru",
+      "email": "baru@example.com",
+      "phone_number": 8123456789,
+      "profile_picture": "[https://image.com/pp.png](https://image.com/pp.png)"
+  }
+}
+```
+
+-----
+
+## DELETE /user/delete
+
+Soft delete akun (Non-aktifkan). **Wajib konfirmasi username.**
+
+### Request
+
+```json
+{
+  "user_id": 12,
+  "username_confirmation": "Budi"
+}
+```
+
+### Response
+
+```json
+{ "message": "Akun berhasil dinonaktifkan." }
+```
+
+-----
+
+## POST /user/submit-survey
+
+Simpan data survey onboarding.
+
+### Request
+
+```json
+{
+  "user_id": 12,
+  "survey_data": {
+    "age": "20-25",
+    "interest": ["coding", "gaming"]
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Survey disimpan",
+  "success": true
+}
+```
+
+-----
+
+# 4️⃣ Products (Prefix: `/products`)
+
+## GET /products
+
+Ambil semua produk (Supabase → fallback dummy).
+
+### Response
+
+```json
+{
+  "source": "supabase",
+  "data": [
+      {
+          "id": 1,
+          "product_name": "Paket Data 10GB",
+          "category": "Kuota",
+          "price": 50000,
+          "description": "...",
+          "image": "..."
+      }
+  ]
+}
+```
+
+-----
+
+## GET /products/cheapest
+
+Ambil produk termurah (bisa filter kategori).
+
+### Query Params
+
+`?category=Kuota` (Opsional)
+
+### Response
+
+```json
+{
+  "data": [ ... ]
+}
+```
+
+-----
+
+# 5️⃣ Favorites (Prefix: `/favorites`)
+
+## POST /favorites/toggle
+
+Tambah ke wishlist (jika belum ada) atau Hapus (jika sudah ada).
+
+### Request
+
+```json
+{ "user_id": 12, "product_id": 5 }
+```
+
+### Response (Add)
+
+```json
+{
+  "message": "Berhasil ditambahkan ke favorit!",
+  "is_favorited": true
+}
+```
+
+### Response (Remove)
+
+```json
+{
+  "message": "Dihapus dari favorit",
+  "is_favorited": false
+}
+```
+
+-----
+
+## GET /favorites/:user\_id
+
+Ambil daftar produk yang disukai user.
+
+### Response
+
+```json
+{
+  "data": [
+    {
+      "id": 5,
+      "product_name": "Paket A",
+      "price": 10000,
+      "image": "..."
+    }
+  ]
+}
+```
+
+-----
+
+# 6️⃣ Transactions (Prefix: `/`)
+
+## POST /checkout/create
+
+Memulai transaksi baru.
+
+### Request
+
+```json
+{
+  "user_id": 12,
+  "product_id": 1,
+  "quantity": 2
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Checkout created",
+  "checkout_id": 44,
+  "redirect_qr": "/checkout/44/qrcode"
+}
+```
+
+-----
+
+## GET /checkout/:id/qrcode
+
+Mengambil link simulasi pembayaran (Scan URL).
+
+### Response
+
+```json
+{
+  "checkout_id": "44",
+  "scan_url": "http://localhost:3200/payment/callback?checkout_id=44"
+}
+```
+
+-----
+
+## POST /payment/pay
+
+**(Simulasi)** Melakukan pembayaran manual via API (pengganti scan QR).
+
+### Request
+
+```json
+{
+  "checkout_id": 44
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Pembayaran berhasil diverifikasi!",
+  "success": true,
+  "data": {
+      "id": 44,
+      "is_paid": true,
+      "total_price": 20000
+  }
+}
+```
+
+-----
+
+## GET /payment/status/:id
+
+Cek status apakah transaksi sudah dibayar atau belum.
+
+### Response
+
+```json
+{
+  "checkout_id": 44,
+  "is_paid": true,
+  "total_price": 20000,
+  "product_name": "Paket A",
+  "category": "Kuota",
+  "created_at": "..."
+}
+```
+
+-----
+
+## GET /transactions/history/:user\_id
+
+Lihat riwayat transaksi user.
+
+### Response
+
+```json
+{
+  "message": "Berhasil mengambil riwayat",
+  "data": [
+    {
+      "id": 44,
+      "total_price": 20000,
+      "is_paid": true,
+      "products": {
+          "product_name": "Paket A",
+          "category": "Kuota",
+          "price": 10000
+       }
+    }
+  ]
+}
+```
+
+-----
+
+# 7️⃣ Forgot Password (Prefix: `/`)
+
+## POST /forgot-password/request
+
+Request OTP untuk reset password.
+
+### Request
+
+```json
+{ "phone_number": "08123456789" }
+```
+
+### Response
+
+```json
+{ "message": "OTP Reset Password telah dikirim ke email Anda." }
+```
+
+-----
+
+## POST /forgot-password/reset
+
+Set password baru menggunakan OTP.
+
+### Request
+
+```json
+{
+  "phone_number": "08123456789",
+  "otp": "123456",
+  "new_password": "baru123"
+}
+```
+
+### Response
+
+```json
+{ "message": "Password berhasil diubah! Silakan login kembali." }
+```
+
+-----
+
+# 🛑 Error Format
+
+Semua endpoint akan mengembalikan format error standar jika terjadi kesalahan:
+
+```json
+{ "message": "Pesan error..." }
+```
+
+```
+```
