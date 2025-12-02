@@ -1,6 +1,19 @@
 [
-    { "id": 1, "name": "Produk Dummy A", "price": 10000 },
-    { "id": 2, "name": "Produk Dummy B", "price": 20000 },
-    { "id": 3, "name": "Produk Dummy C", "price": 30000 }
+  {
+    "id": 1,
+    "product_name": "Pulsa Hemat 20rb",
+    "category": "Top-up Promo",
+    "price": 19500,
+    "type": "CREDIT",
+    "image": "https://placehold.co/400x300/yellow/black?text=Pulsa+20rb"
+},
+{
+    "id": 2,
+    "product_name": "Freedom 15GB",
+    "category": "General Offer",
+    "price": 55000,
+    "type": "DATA",
+    "image": "https://placehold.co/400x300/orange/white?text=Freedom+15GB"
+}
   ]
   

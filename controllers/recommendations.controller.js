@@ -1,14 +1,13 @@
 import { supabase } from "../config/supabase.js";
 import { ProductModel } from "../models/product.model.js";
 
-// const ML_API_URL = process.env.ML_API_URL || "http://127.0.0.1:5000/predict";
-const ML_API_URL = process.env.ML_API_URL || "https://ml-paketin-production.up.railway.app/predict";
+const ML_API_URL = process.env.ML_API_URL || "http://127.0.0.1:5000/predict";
 
 export const getPersonalizedRecommendation = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // 1. AMBIL DATA FITUR USER
+    // 1. AMBIL DATA FITUR USER (Untuk ML)
     const { data: userFeatures, error: featureError } = await supabase
       .from("customer_ml_features")
       .select("*")
@@ -16,30 +15,20 @@ export const getPersonalizedRecommendation = async (req, res) => {
       .single();
 
     if (featureError || !userFeatures) {
-      // Fallback User Baru (Belum ada data ML)
-      // Kita ambil produk General Offer sebagai default
-      const fallback = await ProductModel.findSimilarFallback({ category: 'General Offer', limit: 4 });
+      const fallback = await ProductModel.findSimilarFallback({ limit: 4 });
       return res.json({ source: "default_fallback", data: fallback.data || [] });
     }
 
-    // 2. SANITASI DATA (PENTING!)
-    // Pastikan tidak ada null yang dikirim ke Python
-    const payload = {
-        plan_type: userFeatures.plan_type || "Prepaid",
-        device_brand: userFeatures.device_brand || "Generic",
-        avg_data_usage_gb: Number(userFeatures.avg_data_usage_gb) || 0,
-        pct_video_usage: Number(userFeatures.pct_video_usage) || 0,
-        avg_call_duration: Number(userFeatures.avg_call_duration) || 0,
-        sms_freq: Number(userFeatures.sms_freq) || 0,
-        monthly_spend: Number(userFeatures.monthly_spend) || 0,
-        topup_freq: Number(userFeatures.topup_freq) || 0,
-        travel_score: Number(userFeatures.travel_score) || 0,
-        complaint_count: Number(userFeatures.complaint_count) || 0
-    };
+    // 2. PROSES ML (LONG TERM MEMORY)
+    // Menentukan "Kelas" User (Sultan/Hemat/Gamer)
+    const payload = { ...userFeatures };
+    delete payload.id; delete payload.user_id; delete payload.updated_at;
 
-    console.log(`[Recom] Sending to ML: Spend=${payload.monthly_spend}`);
+    // Sanitasi data number
+    for (let key in payload) {
+        if (typeof userFeatures[key] === 'number') payload[key] = Number(userFeatures[key]) || 0;
+    }
 
-    // 3. KIRIM KE ML
     let mlResult = null;
     try {
         const mlRes = await fetch(ML_API_URL, {
@@ -47,20 +36,14 @@ export const getPersonalizedRecommendation = async (req, res) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
         });
-
-        if (!mlRes.ok) {
-             const errText = await mlRes.text();
-             throw new Error(`ML Server Error: ${mlRes.status} - ${errText}`);
-        }
-        mlResult = await mlRes.json();
+        if (mlRes.ok) mlResult = await mlRes.json();
     } catch (mlErr) {
-        console.error("ML Connection Failed:", mlErr.message);
-        // Jangan matikan proses, lanjut ke Logic Override/Fallback manual
+        console.error("ML Error:", mlErr.message);
     }
     
     let label = mlResult ? mlResult.label_prediction : 'General Offer';
 
-    // 4. LOGIKA OVERRIDE (Sultan Check)
+    // Override Logic (Sultan Check) - Tetap dipakai untuk menentukan "Kelas"
     const spend = parseFloat(payload.monthly_spend);
     if (label === 'General Offer') {
         if (spend >= 150000) label = 'High Value';
@@ -68,83 +51,86 @@ export const getPersonalizedRecommendation = async (req, res) => {
         else if (spend < 25000) label = 'Top-up Promo';
     }
 
-    console.log(`[Recom] Final Label: ${label}`);
-
-    // 5. AMBIL PRODUK UTAMA
-    const { data: mainProducts } = await supabase
-        .from("products")
-        .select("*")
-        .eq("category", label);
-
-    let finalProducts = mainProducts || [];
-
-    // 6. LOGIKA FALLBACK PINTAR (Isi Kekurangan)
-    if (finalProducts.length < 4) {
-        const currentIds = finalProducts.map(p => p.id);
-        // Tambahkan dummy ID 0 jika array kosong agar query SQL valid
-        const excludeIds = currentIds.length > 0 ? `(${currentIds.join(',')})` : `(0)`; 
-        
-        const needed = 4 - finalProducts.length;
-        const targetPrice = spend || 50000;
-
-        const { data: similarProducts } = await supabase
-            .from("products")
-            .select("*")
-            .not("id", "in", excludeIds)
-            .gte("price", targetPrice * 0.6)
-            .lte("price", targetPrice * 1.4)
-            .limit(needed);
-            
-        if (similarProducts && similarProducts.length > 0) {
-            finalProducts = [...finalProducts, ...similarProducts];
-        }
-        
-        // Lapis terakhir: Ambil apa saja
-        if (finalProducts.length < 4) {
-             const stillNeeded = 4 - finalProducts.length;
-             const allCurrentIds = finalProducts.map(p => p.id);
-             const excludeAll = allCurrentIds.length > 0 ? `(${allCurrentIds.join(',')})` : `(0)`;
-
-             const { data: fillers } = await supabase
-                .from("products")
-                .select("*")
-                .not("id", "in", excludeAll)
-                .limit(stillNeeded);
-                
-             finalProducts = [...finalProducts, ...(fillers || [])];
-        }
-    }
-
-    // 7. SORTING TYPE PREFERENCE
+    // 3. ANALISIS TRANSAKSI TERAKHIR (SHORT TERM CONTEXT) --- BAGIAN BARU ---
+    // Kita lihat apa yang BARUSAN dibeli user
     const { data: lastTrx } = await supabase
         .from('transactions')
-        .select(`products (type)`)
+        .select(`
+            id, created_at, total_price,
+            products (id, type, category, price, product_name)
+        `)
         .eq('user_id', userId)
         .eq('is_paid', true)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-    const preferredType = lastTrx?.products?.type;
+    let contextProducts = [];
     
-    if (preferredType && finalProducts.length > 0) {
-        finalProducts.sort((a, b) => {
-            if (a.type === preferredType && b.type !== preferredType) return -1;
-            if (a.type !== preferredType && b.type === preferredType) return 1;
-            return 0;
-        });
+    if (lastTrx && lastTrx.products) {
+        const lastProd = lastTrx.products;
+        const lastPrice = parseFloat(lastTrx.total_price); // Harga yang dia bayar terakhir
+
+        console.log(`[Recom] Konteks Terakhir: Beli ${lastProd.product_name} (${lastProd.type}) seharga ${lastPrice}`);
+
+        // QUERY PINTAR: Cari produk yang MIRIP dengan pembelian terakhir
+        // Syarat: 
+        // 1. Tipe SAMA (Kalau beli Pulsa, tawarin Pulsa. Beli Data, tawarin Data)
+        // 2. Harga MIRIP (Range 50% - 200% dari harga terakhir). 
+        //    Contoh: Beli 10rb -> Tawarin 5rb s/d 20rb. (Jangan tawarin 500rb dulu)
+        
+        const minPrice = lastPrice * 0.5;
+        const maxPrice = lastPrice * 2.0;
+
+        const { data: similarLast } = await supabase
+            .from("products")
+            .select("*")
+            .eq("type", lastProd.type) // Prioritas Tipe
+            .gte("price", minPrice)
+            .lte("price", maxPrice)
+            .neq("id", lastProd.id) // Jangan tawarin produk yg sama persis barusan dibeli
+            .limit(4);
+
+        if (similarLast) contextProducts = similarLast;
     }
 
+    // 4. AMBIL PRODUK DARI ML (LONG TERM)
+    const { data: mlProducts } = await supabase
+        .from("products")
+        .select("*")
+        .eq("category", label)
+        .limit(6); // Ambil agak banyak buat cadangan
+
+    // 5. PENGGABUNGAN (MERGE STRATEGY)
+    // Urutan Prioritas:
+    // 1. Produk yang mirip pembelian terakhir (Context)
+    // 2. Produk dari prediksi ML (Persona)
+    
+    let combined = [...contextProducts, ...(mlProducts || [])];
+
+    // Hapus Duplikat (Filter Unique ID)
+    const uniqueProducts = [];
+    const seenIds = new Set();
+
+    for (const p of combined) {
+        if (!seenIds.has(p.id)) {
+            uniqueProducts.push(p);
+            seenIds.add(p.id);
+        }
+    }
+
+    // Ambil 6 teratas (misal frontend minta 4, kita kasih lebih dikit)
+    const finalResult = uniqueProducts.slice(0, 6);
+
     return res.json({
-      source: mlResult ? "ml_recommendation" : "logic_fallback",
-      prediction: label,
-      data: finalProducts
+      source: contextProducts.length > 0 ? "hybrid_context" : "ml_recommendation",
+      prediction: label, // Tetap kirim label asli user (misal High Value)
+      context_based_on: lastTrx?.products?.product_name || "None",
+      data: finalResult
     });
 
   } catch (error) {
     console.error("Critical Recom Error:", error);
-    // Fallback Total (Safe Mode)
-    // Pastikan parameter category ada agar query model valid
     const fallback = await ProductModel.findSimilarFallback({ category: 'General Offer', limit: 4 });
     return res.json({ source: "error_fallback", data: fallback.data || [] });
   }

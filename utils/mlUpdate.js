@@ -64,36 +64,75 @@ const calculateFinancialStats = (transactions, surveyData) => {
   return { monthlySpend, totalTransactions };
 };
 
-// --- 3. LOGIC: USAGE SCORE CALCULATOR ---
+// --- 3. LOGIC: USAGE SCORE CALCULATOR (UPDATED BERDASARKAN ANALISIS MODEL) ---
 const calculateUsageStats = (transactions, favorites, surveyData) => {
   let gamingScore = 0;
   let videoScore = 0;
   let socialScore = 0;
+  
+  // Variable baru untuk fitur penting lainnya
+  let callScore = 10.0; // Default rata-rata (menit)
+  let travelScore = 0.1; // Default rendah (skala 0-10 atau 0.0-1.0)
+  let complaintScore = 0; // Default
 
   const addScore = (category, weight) => {
     const cat = category?.toLowerCase() || "";
-    if (cat.includes('game') || cat.includes('mlbb')) gamingScore += weight;
-    else if (cat.includes('stream') || cat.includes('movie') || cat.includes('video') || cat.includes('youtube')) videoScore += weight;
-    else if (cat.includes('sosmed') || cat.includes('chat')) socialScore += weight;
-    else socialScore += (weight / 2); // General category
+    
+    // 1. Video Usage (Fitur Penting #3)
+    if (cat.includes('stream') || cat.includes('movie') || cat.includes('video') || cat.includes('youtube') || cat.includes('netflix')) {
+        videoScore += weight;
+    }
+    // 2. Gaming Usage
+    else if (cat.includes('game') || cat.includes('mlbb')) {
+        gamingScore += weight;
+    }
+    // 3. Social Usage
+    else if (cat.includes('sosmed') || cat.includes('chat') || cat.includes('social')) {
+        socialScore += weight;
+    }
+    // 4. Travel Score (Fitur Penting #4)
+    else if (cat.includes('roaming') || cat.includes('travel') || cat.includes('sg') || cat.includes('hajj')) {
+        travelScore += (weight / 10); // Nambah sedikit demi sedikit (misal 0.5)
+    }
+    // 5. Call Duration (Fitur Penting #1)
+    else if (cat.includes('voice') || cat.includes('nelpon') || cat.includes('talk')) {
+        callScore += (weight * 5); // Nambah 50 menit per pembelian
+    }
   };
 
   // Scoring Rules
-  transactions.forEach(t => addScore(t.products?.category, 10)); // Transaksi: Bobot 10
-  favorites.forEach(f => addScore(f.products?.category, 5));     // Favorit: Bobot 5
+  transactions.forEach(t => addScore(t.products?.category, 10)); // Transaksi: Bobot Besar
+  favorites.forEach(f => addScore(f.products?.category, 5));     // Favorit: Bobot Sedang
   
   // Survey Score
   const usageInterest = surveyData.survey_usage || [];
   if (usageInterest.includes('gaming')) gamingScore += 5;
   if (usageInterest.includes('streaming')) videoScore += 5;
   if (usageInterest.includes('social')) socialScore += 5;
+  if (usageInterest.includes('work')) {
+      callScore += 30; // Asumsi kerja butuh nelpon
+      travelScore += 0.2; // Asumsi kerja kadang travel
+  }
 
-  // Konversi ke Fitur ML
+  // --- KONVERSI KE FITUR ML ---
+  
+  // Data Usage
   const totalAllScores = gamingScore + videoScore + socialScore;
-  const dataUsage = 2.0 + (totalAllScores * 1.0); // Base 2GB + (Score * 1GB)
-  const pctVideo = totalAllScores === 0 ? 0.1 : parseFloat((videoScore / totalAllScores).toFixed(2));
+  const dataUsage = 2.0 + (totalAllScores * 1.0); 
 
-  return { dataUsage, pctVideo };
+  // pct_video_usage (Juara 3)
+  const pctVideo = totalAllScores === 0 ? 0.1 : parseFloat((videoScore / totalAllScores).toFixed(2));
+  
+  // Normalisasi Travel Score (Maks 10.0 biar masuk akal)
+  const finalTravelScore = Math.min(travelScore, 10.0);
+
+  return { 
+      dataUsage, 
+      pctVideo, 
+      avgCallDuration: callScore, 
+      travelScore: finalTravelScore,
+      complaintCount: complaintScore 
+  };
 };
 
 // --- 4. MAIN EXPORT FUNCTION ---
@@ -106,28 +145,31 @@ export const recalculateUserProfile = async (userId) => {
 
     // 2. Calculate Stats
     const { monthlySpend, totalTransactions } = calculateFinancialStats(transactions, surveyData);
-    const { dataUsage, pctVideo } = calculateUsageStats(transactions, favorites, surveyData);
+        
+    // Ambil return value baru
+    const { dataUsage, pctVideo, avgCallDuration, travelScore, complaintCount } = calculateUsageStats(transactions, favorites, surveyData);
 
     // 3. Prepare Payload
-    const planType = monthlySpend > 150000 ? "Postpaid" : "Prepaid";
-    
+    // Logic Plan Type (Juara 2) diperkuat
+    const planType = monthlySpend > 100000 ? "Postpaid" : "Prepaid";
+
     const mlPayload = {
       user_id: userId,
-      plan_type: planType,
+      plan_type: planType, // Fitur Penting #2
       device_brand: "Generic", 
-      avg_data_usage_gb: parseFloat(dataUsage.toFixed(1)),
-      pct_video_usage: pctVideo,
-      avg_call_duration: 10.0,
-      sms_freq: 5,
-      monthly_spend: parseFloat(monthlySpend.toFixed(2)),
+      avg_data_usage_gb: parseFloat(dataUsage.toFixed(1)), // Fitur Penting #7
+      pct_video_usage: pctVideo, // Fitur Penting #3
+      avg_call_duration: parseFloat(avgCallDuration.toFixed(1)), // Fitur Penting #1 (Kita manipulasi ini!)
+      sms_freq: 5,             // Fitur Penting #8
+      monthly_spend: parseFloat(monthlySpend.toFixed(2)), // Fitur Penting #6
       topup_freq: Math.max(1, totalTransactions),
-      travel_score: 0.1,
-      complaint_count: 0,
+      travel_score: parseFloat(travelScore.toFixed(2)), // Fitur Penting #4
+      complaint_count: complaintCount, // Fitur Penting #5
       updated_at: new Date()
     };
 
     console.log("[ML-Update] Payload Baru:", mlPayload);
-
+    
     // 4. Save to DB
     const { error } = await supabase
       .from("customer_ml_features")
