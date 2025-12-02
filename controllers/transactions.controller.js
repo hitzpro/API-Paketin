@@ -96,15 +96,15 @@ export const payTransaction = async (req, res) => {
 // 4. Get QR Code
 export const getQrCode = async (req, res) => {
   const { id } = req.params;
+
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:4321";
   
-  // AMBIL DARI ENV (Server URL)
-  const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT}`;
-  
-  const callbackUrl = `${baseUrl}/payment/callback?checkout_id=${id}`;
+  // Arahkan ke halaman konfirmasi bayar di Frontend
+  const scanUrl = `${clientUrl}/pay-confirm/${id}`;
   
   return res.json({
     checkout_id: id,
-    scan_url: callbackUrl,
+    scan_url: scanUrl
   });
 };
 
