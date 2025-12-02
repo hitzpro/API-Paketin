@@ -1,12 +1,11 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv"; // Import dotenv
+import dotenv from "dotenv"; 
 
-// AKTIFKAN DOTENV DI SINI JUGA
 dotenv.config(); 
 
-// Import semua Routes
+// Import Routes
 import authRoutes from "./routes/auth.routes.js";
 import productRoutes from "./routes/products.routes.js";
 import favoriteRoutes from "./routes/favorites.routes.js";
@@ -18,27 +17,46 @@ import recommendationRoutes from "./routes/recommendations.routes.js";
 
 const app = express();
 
-// --- CONFIG CORS YANG LEBIH KUAT ---
-// Kita masukkan semua variasi localhost agar aman
-const allowedOrigins = [
-    "http://localhost:4321",      // Frontend via localhost
-    "http://127.0.0.1:4321",      // Frontend via IP
-    process.env.CLIENT_URL        // Dari .env (jika ada)
-].filter(Boolean); // Hapus nilai null/undefined jika env belum diset
-
+// --- CONFIG CORS (UPDATE) ---
 app.use(cors({
     origin: function (origin, callback) {
-        // Izinkan request dari server-to-server (seperti Postman) yang tidak punya origin
+        // 1. Izinkan request tanpa origin (Server-to-Server, Postman, Mobile Apps)
         if (!origin) return callback(null, true);
+
+        // 2. List URL Localhost yang diizinkan
+        const allowedLocal = [
+            "http://localhost:4321",
+            "http://127.0.0.1:4321"
+        ];
+
+        // 3. Ambil URL Utama dari .env
+        const envClientUrl = process.env.CLIENT_URL;
+
+        // --- LOGIKA PENGECEKAN ---
         
-        if (allowedOrigins.indexOf(origin) === -1) {
-            console.error(`BLOCKED BY CORS: ${origin}`); // Log biar tau siapa yang diblokir
-            var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+        // A. Cek Localhost
+        if (allowedLocal.includes(origin)) {
+            return callback(null, true);
         }
-        return callback(null, true);
+
+        // B. Cek URL Utama (Production)
+        if (envClientUrl && origin === envClientUrl) {
+            return callback(null, true);
+        }
+
+        // C. [SOLUSI ERROR KAMU] Izinkan semua subdomain Vercel
+        // Ini akan mengizinkan: 
+        // - https://paketin.vercel.app
+        // - https://paketin-my-id-2noe.vercel.app (URL Preview kamu)
+        if (origin.endsWith(".vercel.app")) {
+            return callback(null, true);
+        }
+
+        // Jika tidak ada yang cocok, blokir
+        console.error(`BLOCKED CORS ORIGIN: ${origin}`); 
+        return callback(new Error('Not allowed by CORS'), false);
     },
-    credentials: true, // Wajib true
+    credentials: true, // Wajib true agar cookie bisa lewat
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
@@ -48,6 +66,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // --- ROUTES ---
+// Health Check
+app.get("/", (req, res) => {
+    res.json({
+        message: "Paketin API is Running! 🚀",
+        server_time: new Date().toISOString()
+    });
+});
+
 app.use("/products", productRoutes);
 app.use("/favorites", favoriteRoutes);
 app.use("/user", profileRoutes);
