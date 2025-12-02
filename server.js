@@ -5,6 +5,13 @@ dotenv.config();
 
 const PORT = process.env.PORT || 3200;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server berjalan rapi di http://localhost:${PORT}`);
-});
+if (process.env.VERCEL) {
+  console.log("🚀 Running on Vercel Serverless");
+} else {
+  app.listen(PORT, () => {
+      console.log(`Server berjalan di http://localhost:${PORT}`);
+  });
+}
+
+// PENTING: Export app untuk Vercel
+export default app;

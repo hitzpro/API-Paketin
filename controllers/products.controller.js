@@ -1,8 +1,16 @@
-import fs from "fs";
 import { ProductModel } from "../models/product.model.js";
 
 // Load dummy data sekali saja saat server start
-const dummyProducts = JSON.parse(fs.readFileSync("./dummy/products.json", "utf-8"));
+const dummyProducts = [
+  {
+      "id": 1,
+      "product_name": "Pulsa Hemat 20rb",
+      "category": "Top-up Promo",
+      "price": 19500,
+      "type": "CREDIT",
+      "image": "https://placehold.co/400x300?text=Pulsa"
+  }
+];
 
 // 1. Get All Products
 export const getProducts = async (req, res) => {
