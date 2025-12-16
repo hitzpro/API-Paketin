@@ -149,3 +149,44 @@ export const forgotPasswordReset = async (req, res) => {
 
   return res.json({ message: "Password berhasil diubah!", success: true });
 };
+
+
+// 7. DEV ONLY: SIMULATE GET OTP (Bypass Email)
+export const getOtpSimulation = async (req, res) => {
+  const { phone_number } = req.body;
+
+  try {
+      // 1. Cari User
+      const { data: user } = await UserModel.findByPhone(Number(phone_number));
+      if (!user) return res.status(404).json({ message: "User tidak ditemukan." });
+
+      // 2. Ambil OTP terakhir dari database
+      const { data: otpData } = await supabase
+          .from("otp_codes")
+          .select("otp_code, expired_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+      if (!otpData) {
+          return res.status(404).json({ message: "Belum ada OTP yang digenerate." });
+      }
+
+      // 3. Cek expired (opsional, tapi bagus untuk validasi)
+      const expiredTime = new Date(otpData.expired_at).getTime();
+      if (Date.now() > expiredTime) {
+          return res.status(400).json({ message: "OTP sudah kadaluarsa. Minta kirim ulang dulu." });
+      }
+
+      // 4. Return kodenya
+      return res.status(200).json({ 
+          message: "OTP didapatkan (Mode Simulasi)", 
+          otp_code: otpData.otp_code 
+      });
+
+  } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: "Internal server error" });
+  }
+};
